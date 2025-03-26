@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.database import Base, engine
 from app.config.messages import SystemMessages
-from app.routers import users
+from app.routers import users_router, visitors_router, access_logs_router, incidents_router
 
 app = FastAPI(
     title="CryptoDevs-BE",
@@ -18,12 +19,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add routers
+app.include_router(users_router)
+app.include_router(visitors_router)
+app.include_router(access_logs_router)
+app.include_router(incidents_router)
+
 @app.get("/health")
 async def health_check():
     return {
         "status": SystemMessages.HEALTH_CHECK_STATUS,
         "message": SystemMessages.HEALTH_CHECK_MESSAGE
     }
-
-# Include routers
-app.include_router(users.router)
