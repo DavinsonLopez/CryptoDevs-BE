@@ -1,7 +1,7 @@
-DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS visitors;
-DROP TABLE IF EXISTS access_logs;
-DROP TABLE IF EXISTS incidents;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS visitors CASCADE;
+DROP TABLE IF EXISTS access_logs CASCADE;
+DROP TABLE IF EXISTS incidents CASCADE;
 
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
@@ -36,9 +36,7 @@ CREATE TABLE access_logs (
     person_id INT NOT NULL,
     access_type VARCHAR(10) NOT NULL CHECK (access_type IN ('entry', 'exit')),
     access_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    workday_date DATE NOT NULL,
-    CONSTRAINT fk_user FOREIGN KEY (person_id) REFERENCES users(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-    CONSTRAINT fk_visitor FOREIGN KEY (person_id) REFERENCES visitors(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+    workday_date DATE NOT NULL
 );
 
 CREATE TABLE incidents (
@@ -47,7 +45,34 @@ CREATE TABLE incidents (
     person_id INT,
     incident_type VARCHAR(50) NOT NULL CHECK (incident_type IN ('denied_access', 'invalid_qr', 'security_alert')),
     description TEXT NOT NULL,
-    reported_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_user_incident FOREIGN KEY (person_id) REFERENCES users(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,
-    CONSTRAINT fk_visitor_incident FOREIGN KEY (person_id) REFERENCES visitors(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
+    reported_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Función para validar que el person_id exista en la tabla correspondiente según el person_type
+CREATE OR REPLACE FUNCTION validate_person_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.person_type = 'employee' THEN
+        IF NOT EXISTS (SELECT 1 FROM users WHERE id = NEW.person_id) THEN
+            RAISE EXCEPTION 'El empleado con ID % no existe', NEW.person_id;
+        END IF;
+    ELSIF NEW.person_type = 'visitor' THEN
+        IF NOT EXISTS (SELECT 1 FROM visitors WHERE id = NEW.person_id) THEN
+            RAISE EXCEPTION 'El visitante con ID % no existe', NEW.person_id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger para validar person_id en access_logs
+CREATE TRIGGER validate_access_log_person_id
+BEFORE INSERT OR UPDATE ON access_logs
+FOR EACH ROW
+EXECUTE FUNCTION validate_person_id();
+
+-- Trigger para validar person_id en incidents
+CREATE TRIGGER validate_incident_person_id
+BEFORE INSERT OR UPDATE ON incidents
+FOR EACH ROW
+EXECUTE FUNCTION validate_person_id();

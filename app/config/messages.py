@@ -11,6 +11,7 @@ class UserMessages:
     ERROR_INVALID_CREDENTIALS = "Credenciales inválidas"
     ERROR_USER_NOT_FOUND = "Usuario no encontrado"
     ERROR_DATABASE_VALIDATION = "Error de validación en la base de datos"
+    ERROR_NOT_ADMIN = "El usuario no es administrador"
 
 class VisitorMessages:
     # Success messages
@@ -34,6 +35,8 @@ class AccessLogMessages:
     ERROR_INVALID_PERSON_TYPE = "Tipo de persona inválido"
     ERROR_INVALID_ACCESS_TYPE = "Tipo de acceso inválido"
     ERROR_PERSON_NOT_FOUND = "Persona no encontrada"
+    ERROR_USER_NOT_FOUND = "Usuario no encontrado"
+    ERROR_VISITOR_NOT_FOUND = "Visitante no encontrado"
 
 class IncidentMessages:
     # Success messages

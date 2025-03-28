@@ -15,23 +15,47 @@ router = APIRouter(
 
 @router.post("/", response_model=schemas.AccessLog)
 def create_access_log(access_log: schemas.AccessLogCreate, db: Session = Depends(get_db)):
-    # Verify that the person exists
-    if access_log.person_type == 'employee':
-        person = db.query(models.User).filter(models.User.id == access_log.person_id).first()
-    else:
-        person = db.query(models.Visitor).filter(models.Visitor.id == access_log.person_id).first()
+    try:
+        # Verify that the person exists
+        if access_log.person_type == 'employee':
+            person = db.query(models.User).filter(models.User.id == access_log.person_id).first()
+            if not person:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No se encontró ningún empleado con el ID {access_log.person_id}"
+                )
+        elif access_log.person_type == 'visitor':
+            person = db.query(models.Visitor).filter(models.Visitor.id == access_log.person_id).first()
+            if not person:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No se encontró ningún visitante con el ID {access_log.person_id}"
+                )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tipo de persona no válido: {access_log.person_type}. Debe ser 'employee' o 'visitor'"
+            )
 
-    if not person:
+        db_access_log = models.AccessLog(**access_log.model_dump())
+        db.add(db_access_log)
+        db.commit()
+        db.refresh(db_access_log)
+        return db_access_log
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        db.rollback()
+        # Extraer solo el mensaje de error sin el código
+        error_message = str(e)
+        if ": " in error_message and error_message.split(": ")[0].isdigit():
+            error_message = error_message.split(": ", 1)[1]
+        
         raise HTTPException(
-            status_code=404,
-            detail=AccessLogMessages.ERROR_PERSON_NOT_FOUND
+            status_code=500,
+            detail=f"Error al crear el registro de acceso: {error_message}"
         )
-
-    db_access_log = models.AccessLog(**access_log.model_dump())
-    db.add(db_access_log)
-    db.commit()
-    db.refresh(db_access_log)
-    return db_access_log
 
 @router.get("/", response_model=List[schemas.AccessLog])
 def get_access_logs(

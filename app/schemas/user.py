@@ -21,6 +21,10 @@ class UserCreate(UserBase):
                 raise ValueError(UserMessages.ERROR_ADMIN_PASSWORD_REQUIRED)
         return v
 
+class UserLogin(BaseModel):
+    identifier: str
+    password: str
+
 class UserUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
