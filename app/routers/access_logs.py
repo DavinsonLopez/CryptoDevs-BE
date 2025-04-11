@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from typing import List, Dict
 from datetime import date
 
@@ -69,6 +70,66 @@ def get_access_logs(
         query = query.filter(models.AccessLog.workday_date == workday_date)
     access_logs = query.offset(skip).limit(limit).all()
     return access_logs
+
+@router.get("/detailed", response_model=List[schemas.AccessLogDetailed])
+def get_detailed_access_logs(
+    skip: int = 0,
+    limit: int = 100,
+    workday_date: date = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get access logs with detailed person information (employee or visitor).
+    This endpoint performs a LEFT JOIN to retrieve user or visitor details along with access logs.
+    """
+    # Build the base query
+    query = """
+        SELECT 
+            acl.id, 
+            acl.person_type, 
+            acl.person_id, 
+            acl.access_type as action_type, 
+            acl.access_time as timestamp, 
+            acl.workday_date,
+            COALESCE(us.first_name, vis.first_name) AS first_name,
+            COALESCE(us.last_name, vis.last_name) AS last_name,
+            COALESCE(us.document_number, vis.document_number) AS document_number,
+            COALESCE(us.email, vis.email) AS email
+        FROM access_logs acl
+        LEFT JOIN users us ON acl.person_type = 'employee' AND acl.person_id = us.id
+        LEFT JOIN visitors vis ON acl.person_type = 'visitor' AND acl.person_id = vis.id
+    """
+    
+    # Add filter for workday_date if provided
+    if workday_date:
+        query += f" WHERE acl.workday_date = '{workday_date}'"
+    
+    # Add pagination
+    query += f" ORDER BY acl.access_time DESC LIMIT {limit} OFFSET {skip}"
+    
+    # Execute the query
+    result = db.execute(text(query))
+    
+    # Convert the result to a list of dictionaries
+    detailed_logs = []
+    for row in result:
+        log = {
+            "id": row.id,
+            "person_type": row.person_type,
+            "person_id": row.person_id,
+            "action_type": row.action_type,
+            "timestamp": row.timestamp,
+            "workday_date": row.workday_date,
+            "person_details": {
+                "first_name": row.first_name,
+                "last_name": row.last_name,
+                "document_number": row.document_number,
+                "email": row.email
+            }
+        }
+        detailed_logs.append(log)
+    
+    return detailed_logs
 
 @router.get("/{access_log_id}", response_model=schemas.AccessLog)
 def get_access_log(access_log_id: int, db: Session = Depends(get_db)):
