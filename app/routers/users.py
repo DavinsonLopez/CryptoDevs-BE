@@ -1,13 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, BackgroundTasks, status
 from sqlalchemy.orm import Session
 from typing import List, Dict, Union
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import or_
-from pydantic import ValidationError
+from pydantic import ValidationError, BaseModel, EmailStr
+import qrcode
+import io
+import base64
 
 from app import models, schemas
 from app.database import get_db
 from app.config.messages import UserMessages
+from app.services.email_service import send_user_registration_email
+from app.routers.qr_codes import generate_qr_code_for_user
 
 router = APIRouter(
     prefix="/users",
@@ -199,6 +204,122 @@ def login_user(login_data: schemas.UserLogin, db: Session = Depends(get_db)):
         )
 
     return user
+
+
+class AdminUserRegistrationRequest(BaseModel):
+    document_number: str
+    first_name: str
+    last_name: str
+    position: str
+    email: EmailStr
+    is_admin: bool = False
+    user_type: str = "employee"  # Valor por defecto
+    password: str = None
+
+
+class AdminUserRegistrationResponse(BaseModel):
+    user: schemas.User
+    qr_code_id: int
+    message: str
+
+
+@router.post("/admin/register", response_model=AdminUserRegistrationResponse)
+async def admin_register_user(
+    user_data: AdminUserRegistrationRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint para que los administradores registren nuevos usuarios.
+    Genera un código QR automáticamente y envía un correo de notificación.
+    """
+    # Validar que si es admin, debe tener contraseña
+    if user_data.is_admin and (not user_data.password or len(user_data.password.strip()) == 0):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=UserMessages.ERROR_ADMIN_PASSWORD_REQUIRED
+        )
+    
+    # Determinar el tipo de usuario
+    # Si es admin, siempre será "admin" independientemente del user_type enviado
+    user_type = "admin" if user_data.is_admin else user_data.user_type
+    
+    # Crear objeto de usuario para la base de datos
+    user_create = schemas.UserCreate(
+        first_name=user_data.first_name,
+        last_name=user_data.last_name,
+        document_number=user_data.document_number,
+        email=user_data.email,
+        user_type=user_type,
+        password=user_data.password if user_data.is_admin else None,
+        image_hash="default"  # Valor por defecto para el hash de imagen
+    )
+    
+    try:
+        # Crear el usuario
+        db_user = create_user(user_create, db)
+        
+        # Generar código QR para el usuario
+        qr_code = generate_qr_code_for_user(db_user.id, db)
+        
+        # Generar imagen del QR para incluir en el correo
+        qr_image_base64 = None
+        if not user_data.is_admin:  # Solo para usuarios no admin
+            try:
+                # Obtener la URL completa del QR
+                qr_url = f"http://127.0.0.1:8000/qr-codes/image/{qr_code.id}"
+                
+                # Crear el código QR
+                qr = qrcode.QRCode(
+                    version=1,
+                    error_correction=qrcode.constants.ERROR_CORRECT_H,  # Mayor corrección de errores
+                    box_size=10,
+                    border=4,
+                )
+                qr.add_data(qr_code.code)  # Usar el código generado
+                qr.make(fit=True)
+                
+                # Generar imagen
+                img = qr.make_image(fill_color="black", back_color="white")
+                
+                # Convertir a base64
+                buffered = io.BytesIO()
+                img.save(buffered, format="PNG")
+                img_str = base64.b64encode(buffered.getvalue())
+                qr_image_base64 = img_str.decode('utf-8')
+                
+                print(f"QR generado correctamente para usuario {db_user.id}, longitud base64: {len(qr_image_base64)}")
+            except Exception as e:
+                print(f"Error al generar imagen QR: {str(e)}")
+        
+        # Enviar correo de notificación
+        await send_user_registration_email(
+            background_tasks=background_tasks,
+            user_email=db_user.email,
+            user_name=f"{db_user.first_name} {db_user.last_name}",
+            user_document=db_user.document_number,
+            user_position=user_data.position,  # Guardamos el cargo en el correo aunque no esté en el modelo
+            is_admin=user_data.is_admin,
+            user_type=user_type,  # Pasamos el tipo de usuario
+            qr_code_id=qr_code.id  # Pasamos el ID del código QR para generar la URL
+        )
+        
+        return {
+            "user": db_user,
+            "qr_code_id": qr_code.id,
+            "message": "Usuario registrado exitosamente y notificación enviada por correo"
+        }
+        
+    except HTTPException as e:
+        # Re-lanzar excepciones HTTP que ya tienen el formato correcto
+        raise e
+    except Exception as e:
+        # Capturar cualquier otro error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al registrar usuario: {str(e)}"
+        )
+
 
 @router.delete("/{user_id}", response_model=Dict[str, str])
 def delete_user(user_id: int, db: Session = Depends(get_db)):

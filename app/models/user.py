@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, func
+from sqlalchemy.orm import relationship
 from app.database.connection import Base
 
 class User(Base):
@@ -14,3 +15,6 @@ class User(Base):
     image_hash = Column(String, nullable=False)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    qr_codes = relationship("QRCode", back_populates="user")
