@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, func
+from sqlalchemy import Column, Integer, String, DateTime, Date, func
 from app.database.connection import Base
 
 class AccessLog(Base):

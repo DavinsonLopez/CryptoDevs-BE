@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, func
+from sqlalchemy.orm import relationship
 from app.database.connection import Base
 
 class Visitor(Base):
@@ -12,3 +13,6 @@ class Visitor(Base):
     reason_for_visit = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    qr_codes = relationship("QRCode", back_populates="visitor")
